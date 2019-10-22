@@ -657,8 +657,8 @@ static void read_map_devs(char *file_name)
 	while (fscanf(fp, "%s %s", from_dev, to_dev) == 2) {
 		struct map_dev *mdp = malloc(sizeof(*mdp));
 
-		mdp->from_dev = from_dev;
-		mdp->to_dev = to_dev;
+		mdp->from_dev = strdup(from_dev);
+		mdp->to_dev = strdup(to_dev);
 		list_add_tail(&mdp->head, &map_devs);
 	}
 
