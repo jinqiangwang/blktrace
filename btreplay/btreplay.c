@@ -40,7 +40,7 @@ static char build_date[] = __DATE__ " at "__TIME__;
 #include <stdarg.h>
 
 #if !defined(_GNU_SOURCE)
-#	define _GNU_SOURCE
+#define _GNU_SOURCE
 #endif
 #include <getopt.h>
 
@@ -60,7 +60,8 @@ static char build_date[] = __DATE__ " at "__TIME__;
  * @from_dev:	Device name as seen on recorded system
  * @to_dev:	Device name to be used on replay system
  */
-struct map_dev {
+struct map_dev
+{
 	struct list_head head;
 	char *from_dev, *to_dev;
 };
@@ -71,7 +72,8 @@ struct map_dev {
  * @head: 	Linked onto input_devs
  * @devnm: 	Device name -- 'sd*'
  */
-struct dev_info {
+struct dev_info
+{
 	struct list_head head;
 	char *devnm;
 };
@@ -101,7 +103,8 @@ struct dev_info {
  * @iterations: Remaining iterations to process
  * @vfp:	For verbose dumping of actions performed
  */
-struct thr_info {
+struct thr_info
+{
 	struct list_head head, free_iocbs, used_iocbs;
 	pthread_mutex_t mutex;
 	pthread_cond_t cond;
@@ -122,7 +125,8 @@ struct thr_info {
  * @tip:	Pointer to per-thread information this IO is associated with
  * @nbytes:	Number of bytes in buffer associated with iocb
  */
-struct iocb_pkt {
+struct iocb_pkt
+{
 	struct iocb iocb;
 	struct list_head head;
 	struct thr_info *tip;
@@ -135,27 +139,29 @@ struct iocb_pkt {
  * ========================================================================
  */
 
-static volatile int signal_done = 0;	// Boolean: Signal'ed, need to quit
+static volatile int signal_done = 0; // Boolean: Signal'ed, need to quit
 
-static char *ibase = "replay";		// Input base name
-static char *idir = ".";		// Input directory base
-static int cpus_to_use = -1;		// Number of CPUs to use
-static int def_iterations = 1;		// Default number of iterations
-static int naios = 512;			// Number of AIOs per thread
-static int ncpus = 0;			// Number of CPUs in the system
-static int verbose = 0;			// Boolean: Output some extra info
-static int write_enabled = 0;		// Boolean: Enable writing
-static __u64 genesis = ~0;		// Earliest time seen
-static __u64 rgenesis;			// Our start time
-static size_t pgsize;			// System Page size
-static int nb_sec = 512;		// Number of bytes per sector
-static LIST_HEAD(input_devs);		// List of devices to handle
-static LIST_HEAD(input_files);		// List of input files to handle
-static LIST_HEAD(map_devs);		// List of device maps
-static int nfiles = 0;			// Number of files to handle
-static int no_stalls = 0;		// Boolean: Disable pre-stalls
-static unsigned acc_factor = 1;		// Int: Acceleration factor
-static int find_records = 0;		// Boolean: Find record files auto
+static char *ibase = "replay"; // Input base name
+static char *idir = ".";	   // Input directory base
+static int cpus_to_use = -1;   // Number of CPUs to use
+static int def_iterations = 1; // Default number of iterations
+static int naios = 512;		   // Number of AIOs per thread
+static int ncpus = 0;		   // Number of CPUs in the system
+static int verbose = 0;		   // Boolean: Output some extra info
+static int write_enabled = 0;  // Boolean: Enable writing
+static __u64 genesis = ~0;	 // Earliest time seen
+static __u64 rgenesis;		   // Our start time
+static size_t pgsize;		   // System Page size
+static int nb_sec = 512;	   // Number of bytes per sector
+static LIST_HEAD(input_devs);  // List of devices to handle
+static LIST_HEAD(input_files); // List of input files to handle
+static LIST_HEAD(map_devs);	// List of device maps
+static int nfiles = 0;		   // Number of files to handle
+static int no_stalls = 0;	  // Boolean: Disable pre-stalls
+static float acc_factor = 1.0; // Float: Acceleration factor,
+							   // 	using float to support slowing down
+static int find_records = 0;   // Boolean: Find record files auto
+static int comp_ratio = 50;	// Int: Compression ratio of generated data buffer
 
 /*
  * Variables managed under control of condition variables.
@@ -207,10 +213,10 @@ static char usage_str[];
  * and display a string (with variable arguments) and then exit with the 
  * specified exit value.
  */
-#define ERR_ARGS			1
-#define ERR_SYSCALL			2
+#define ERR_ARGS 1
+#define ERR_SYSCALL 2
 static inline void fatal(const char *errstring, const int exitval,
-			 const char *fmt, ...)
+						 const char *fmt, ...)
 {
 	va_list ap;
 
@@ -239,7 +245,7 @@ static inline long long unsigned du64_to_nsec(__u64 du64)
  * min - Return minimum of two integers
  */
 static inline int min(int a, int b)
-{ 
+{
 	return a < b ? a : b;
 }
 
@@ -247,7 +253,7 @@ static inline int min(int a, int b)
  * minl - Return minimum of two longs
  */
 static inline long minl(long a, long b)
-{ 
+{
 	return a < b ? a : b;
 }
 
@@ -256,8 +262,8 @@ static inline long minl(long a, long b)
  */
 static inline void usage(void)
 {
-	fprintf(stderr, "Usage: btreplay -- version %s\n%s", 
-		my_btversion, usage_str);
+	fprintf(stderr, "Usage: btreplay -- version %s\n%s",
+			my_btversion, usage_str);
 }
 
 /**
@@ -281,7 +287,7 @@ static inline int is_reap_done(struct thr_info *tip)
 /**
  * ts2ns - Convert timespec values to a nanosecond value
  */
-#define NS_TICKS		((__u64)1000 * (__u64)1000 * (__u64)1000)
+#define NS_TICKS ((__u64)1000 * (__u64)1000 * (__u64)1000)
 static inline __u64 ts2ns(struct timespec *ts)
 {
 	return ((__u64)(ts->tv_sec) * NS_TICKS) + (__u64)(ts->tv_nsec);
@@ -324,7 +330,8 @@ static inline void *buf_alloc(size_t nbytes)
 {
 	void *buf;
 
-	if (posix_memalign(&buf, pgsize, nbytes)) {
+	if (posix_memalign(&buf, pgsize, nbytes))
+	{
 		fatal("posix_memalign", ERR_SYSCALL, "Allocation failed\n");
 		/*NOTREACHED*/
 	}
@@ -337,25 +344,28 @@ static inline void *buf_alloc(size_t nbytes)
  */
 static inline __u64 gettime(void)
 {
-	static int use_clock_gettime = -1;		// Which clock to use
+	static int use_clock_gettime = -1; // Which clock to use
 
-	if (use_clock_gettime < 0) {
+	if (use_clock_gettime < 0)
+	{
 		use_clock_gettime = clock_getres(CLOCK_MONOTONIC, NULL) == 0;
-		if (use_clock_gettime) {
+		if (use_clock_gettime)
+		{
 			struct timespec ts = {
 				.tv_sec = 0,
-				.tv_nsec = 0
-			};
+				.tv_nsec = 0};
 			clock_settime(CLOCK_MONOTONIC, &ts);
 		}
 	}
 
-	if (use_clock_gettime) {
+	if (use_clock_gettime)
+	{
 		struct timespec ts;
 		clock_gettime(CLOCK_MONOTONIC, &ts);
 		return ts2ns(&ts);
 	}
-	else {
+	else
+	{
 		struct timeval tp;
 		gettimeofday(&tp, NULL);
 		return tv2ns(&tp);
@@ -367,9 +377,10 @@ static inline __u64 gettime(void)
  */
 static inline void setup_signal(int signum, sighandler_t handler)
 {
-	if (signal(signum, handler) == SIG_ERR) {
+	if (signal(signum, handler) == SIG_ERR)
+	{
 		fatal("signal", ERR_SYSCALL, "Failed to set signal %d\n",
-			signum);
+			  signum);
 		/*NOTREACHED*/
 	}
 }
@@ -388,8 +399,8 @@ static inline void setup_signal(int signum, sighandler_t handler)
  * @mxv: 	Max value for variable (Used only when ASSERTS are on)
  */
 static inline void __set_cv(pthread_mutex_t *pmp, pthread_cond_t *pcp,
-			    volatile int *vp, 
-			    __attribute__((__unused__))int mxv)
+							volatile int *vp,
+							__attribute__((__unused__)) int mxv)
 {
 	pthread_mutex_lock(pmp);
 	assert(*vp < mxv);
@@ -406,7 +417,7 @@ static inline void __set_cv(pthread_mutex_t *pmp, pthread_cond_t *pcp,
  * @mxv: 	Value to wait for
  */
 static inline void __wait_cv(pthread_mutex_t *pmp, pthread_cond_t *pcp,
-			     volatile int *vp, int mxv)
+							 volatile int *vp, int mxv)
 {
 	pthread_mutex_lock(pmp);
 	while (*vp < mxv)
@@ -418,49 +429,49 @@ static inline void __wait_cv(pthread_mutex_t *pmp, pthread_cond_t *pcp,
 static inline void set_reclaim_done(void)
 {
 	__set_cv(&reclaim_done_mutex, &reclaim_done_cond, &n_reclaims_done,
-		 nfiles);
+			 nfiles);
 }
 
 static inline void wait_reclaims_done(void)
 {
 	__wait_cv(&reclaim_done_mutex, &reclaim_done_cond, &n_reclaims_done,
-		  nfiles);
+			  nfiles);
 }
 
 static inline void set_replay_ready(void)
 {
 	__set_cv(&replay_ready_mutex, &replay_ready_cond, &n_replays_ready,
-		 nfiles);
+			 nfiles);
 }
 
 static inline void wait_replays_ready(void)
 {
 	__wait_cv(&replay_ready_mutex, &replay_ready_cond, &n_replays_ready,
-		  nfiles);
+			  nfiles);
 }
 
 static inline void set_replay_done(void)
 {
 	__set_cv(&replay_done_mutex, &replay_done_cond, &n_replays_done,
-		nfiles);
+			 nfiles);
 }
 
 static inline void wait_replays_done(void)
 {
 	__wait_cv(&replay_done_mutex, &replay_done_cond, &n_replays_done,
-		  nfiles);
+			  nfiles);
 }
 
 static inline void set_iter_done(void)
 {
 	__set_cv(&iter_done_mutex, &iter_done_cond, &n_iters_done,
-		nfiles);
+			 nfiles);
 }
 
 static inline void wait_iters_done(void)
 {
 	__wait_cv(&iter_done_mutex, &iter_done_cond, &n_iters_done,
-		  nfiles);
+			  nfiles);
 }
 
 /**
@@ -506,15 +517,17 @@ static void get_ncpus(void)
 	ncpus = sysconf(_SC_NPROCESSORS_CONF);
 #else
 	int nrcpus = 4096;
-	cpu_set_t * cpus;
-	
+	cpu_set_t *cpus;
+
 realloc:
 	cpus = CPU_ALLOC(nrcpus);
 	size = CPU_ALLOC_SIZE(nrcpus);
 	CPU_ZERO_S(size, cpus);
 
-	if (sched_getaffinity(getpid(), size, cpus)) {
-		if( errno == EINVAL && nrcpus < (4096<<4) ) {
+	if (sched_getaffinity(getpid(), size, cpus))
+	{
+		if (errno == EINVAL && nrcpus < (4096 << 4))
+		{
 			CPU_FREE(cpus);
 			nrcpus <<= 1;
 			goto realloc;
@@ -525,12 +538,13 @@ realloc:
 
 	ncpus = -1;
 	for (last_cpu = 0; last_cpu < CPU_SETSIZE && CPU_ISSET(last_cpu, &cpus); last_cpu++)
-		if (CPU_ISSET( last_cpu, &cpus) ) 
+		if (CPU_ISSET(last_cpu, &cpus))
 			ncpus = last_cpu;
 	ncpus++;
 	CPU_FREE(cpus);
 #endif
-	if (ncpus == 0) {
+	if (ncpus == 0)
+	{
 		fatal(NULL, ERR_SYSCALL, "Insufficient number of CPUs\n");
 		/*NOTREACHED*/
 	}
@@ -546,18 +560,20 @@ static void pin_to_cpu(struct thr_info *tip)
 	size_t size;
 
 	cpus = CPU_ALLOC(ncpus);
-	size = CPU_ALLOC_SIZE(ncpus);	
+	size = CPU_ALLOC_SIZE(ncpus);
 
 	assert(0 <= tip->cpu && tip->cpu < ncpus);
 
 	CPU_ZERO_S(ncpus, cpus);
 	CPU_SET_S(tip->cpu, size, cpus);
-	if (sched_setaffinity(getpid(), size, cpus)) {
+	if (sched_setaffinity(getpid(), size, cpus))
+	{
 		fatal("sched_setaffinity", ERR_SYSCALL, "Failed to pin CPU\n");
 		/*NOTREACHED*/
 	}
 
-	if (verbose > 1) {
+	if (verbose > 1)
+	{
 		int i;
 		cpu_set_t *now = CPU_ALLOC(ncpus);
 
@@ -583,7 +599,8 @@ static void add_input_dev(char *devnm)
 	struct list_head *p;
 	struct dev_info *dip;
 
-	__list_for_each(p, &input_devs) {
+	__list_for_each(p, &input_devs)
+	{
 		dip = list_entry(p, struct dev_info, head);
 		if (strcmp(dip->devnm, devnm) == 0)
 			return;
@@ -609,12 +626,14 @@ static void find_input_devs(char *idir)
 	struct dirent *ent;
 	DIR *dir = opendir(idir);
 
-	if (dir == NULL) {
+	if (dir == NULL)
+	{
 		fatal(idir, ERR_ARGS, "Unable to open %s\n", idir);
 		/*NOTREACHED*/
 	}
 
-	while ((ent = readdir(dir)) != NULL) {
+	while ((ent = readdir(dir)) != NULL)
+	{
 		char *p, *dsf;
 
 		if (strstr(ent->d_name, ".replay.") == NULL)
@@ -649,12 +668,14 @@ static void read_map_devs(char *file_name)
 	char from_dev[256], to_dev[256];
 
 	fp = fopen(file_name, "r");
-	if (!fp) {
+	if (!fp)
+	{
 		fatal(file_name, ERR_SYSCALL, "Could not open map devs file\n");
 		/*NOTREACHED*/
 	}
 
-	while (fscanf(fp, "%s %s", from_dev, to_dev) == 2) {
+	while (fscanf(fp, "%s %s", from_dev, to_dev) == 2)
+	{
 		struct map_dev *mdp = malloc(sizeof(*mdp));
 
 		mdp->from_dev = strdup(from_dev);
@@ -672,7 +693,8 @@ static void release_map_devs(void)
 {
 	struct list_head *p, *q;
 
-	list_for_each_safe(p, q, &map_devs) {
+	list_for_each_safe(p, q, &map_devs)
+	{
 		struct map_dev *mdp = list_entry(p, struct map_dev, head);
 
 		list_del(&mdp->head);
@@ -693,7 +715,8 @@ static char *map_dev(char *from_dev)
 {
 	struct list_head *p;
 
-	__list_for_each(p, &map_devs) {
+	__list_for_each(p, &map_devs)
+	{
 		struct map_dev *mdp = list_entry(p, struct map_dev, head);
 
 		if (strcmp(from_dev, mdp->from_dev) == 0)
@@ -701,6 +724,50 @@ static char *map_dev(char *from_dev)
 	}
 
 	return from_dev;
+}
+
+static void *g_dat_buf = NULL;		  // data buf
+static int g_sec_cnt = 64 * 1024 * 2; // sector count
+static void *g_read_buf = NULL;
+
+void *gen_rand_sec(int nosec, int ratio)
+{
+	const int sec_size = 512;
+	if (ratio <= 0 || ratio > 100)
+	{
+		return NULL;
+	}
+
+	void *buf = buf_alloc(sec_size * nosec);
+	if (NULL == buf)
+	{
+		return NULL;
+	}
+
+	g_read_buf = buf_alloc(sec_size * nosec);
+	if (NULL == g_read_buf)
+	{
+		return NULL;
+	}
+
+	memset(buf, 0, sec_size * nosec);
+	memset(g_read_buf, 0, sec_size * nosec);
+
+	int secidx = 0;
+	int rand_cnt = sec_size * ratio / 400;
+	srand((unsigned)time(NULL));
+	for (; secidx < nosec; secidx++)
+	{
+		int i = 0;
+		int j = secidx * sec_size;
+		for (; i < rand_cnt; i++, j += 4)
+		{
+			int r = rand();
+			memcpy(buf + j, &r, 4);
+		}
+	}
+
+	return buf;
 }
 
 /* 
@@ -730,36 +797,66 @@ static void iocb_init(struct thr_info *tip, struct iocb_pkt *iocbp)
  */
 static void iocb_setup(struct iocb_pkt *iocbp, int rw, int n, long long off)
 {
-	char *buf;
-	struct iocb *iop = &iocbp->iocb;
+	if (g_dat_buf == NULL) {
+		char *buf;
+		struct iocb *iop = &iocbp->iocb;
 
-	assert(rw == 0 || rw == 1);
-	assert(0 < n && (n % nb_sec) == 0);
-	assert(0 <= off);
+		assert(rw == 0 || rw == 1);
+		assert(0 < n && (n % nb_sec) == 0);
+		assert(0 <= off);
 
-	if (iocbp->nbytes) {
-		if (iocbp->nbytes >= n) {
-			buf = iop->u.c.buf;
-			goto prep;
+		if (iocbp->nbytes)
+		{
+			if (iocbp->nbytes >= n)
+			{
+				buf = iop->u.c.buf;
+				goto prep;
+			}
+
+			assert(iop->u.c.buf);
+			free(iop->u.c.buf);
 		}
 
-		assert(iop->u.c.buf);
-		free(iop->u.c.buf);
+		buf = buf_alloc(n);
+		iocbp->nbytes = n;
+
+	prep:
+		if (rw)
+			io_prep_pread(iop, iocbp->tip->ofd, buf, n, off);
+		else
+		{
+			assert(write_enabled);
+			io_prep_pwrite(iop, iocbp->tip->ofd, buf, n, off);
+			touch_memory(buf, n);
+		}
+
+		iop->data = iocbp;		
 	}
-
-	buf = buf_alloc(n);
-	iocbp->nbytes = n;
-
-prep:
-	if (rw)
-		io_prep_pread(iop, iocbp->tip->ofd, buf, n, off);
 	else {
-		assert(write_enabled);
-		io_prep_pwrite(iop, iocbp->tip->ofd, buf, n, off);
-		touch_memory(buf, n);
-	}
+		////////////////////////////////////////
+		char *buf;
+		struct iocb *iop = &iocbp->iocb;
 
-	iop->data = iocbp;
+		assert(rw == 0 || rw == 1);
+		assert(0 < n && (n % nb_sec) == 0);
+		assert(0 <= off);
+
+		iocbp->nbytes = n;
+
+		if (rw)
+		{
+			buf = g_read_buf;
+			io_prep_pread(iop, iocbp->tip->ofd, buf, n, off);
+		}
+		else
+		{
+			assert(write_enabled);
+			buf = g_dat_buf;
+			io_prep_pwrite(iop, iocbp->tip->ofd, buf, n, off);
+		}
+
+		iop->data = iocbp;
+	}
 }
 
 /* 
@@ -781,7 +878,8 @@ static void tip_init(struct thr_info *tip)
 	pthread_mutex_init(&tip->mutex, NULL);
 	pthread_cond_init(&tip->cond, NULL);
 
-	if (io_setup(naios, &tip->ctx)) {
+	if (io_setup(naios, &tip->ctx))
+	{
 		fatal("io_setup", ERR_SYSCALL, "io_setup failed\n");
 		/*NOTREACHED*/
 	}
@@ -794,7 +892,8 @@ static void tip_init(struct thr_info *tip)
 	memset(&tip->sub_thread, 0, sizeof(tip->sub_thread));
 	memset(&tip->rec_thread, 0, sizeof(tip->rec_thread));
 
-	for (i = 0; i < naios; i++) {
+	for (i = 0; i < naios; i++)
+	{
 		struct iocb_pkt *iocbp = buf_alloc(sizeof(*iocbp));
 
 		iocb_init(tip, iocbp);
@@ -802,13 +901,15 @@ static void tip_init(struct thr_info *tip)
 	}
 	tip->naios_free = naios;
 
-	if (verbose > 1) {
+	if (verbose > 1)
+	{
 		char fn[MAXPATHLEN];
 
-		sprintf(fn, "%s/%s.%s.%d.rep", idir, tip->devnm, ibase, 
-			tip->cpu);
+		sprintf(fn, "%s/%s.%s.%d.rep", idir, tip->devnm, ibase,
+				tip->cpu);
 		tip->vfp = fopen(fn, "w");
-		if (!tip->vfp) {
+		if (!tip->vfp)
+		{
 			fatal(fn, ERR_SYSCALL, "Failed to open report\n");
 			/*NOTREACHED*/
 		}
@@ -816,15 +917,17 @@ static void tip_init(struct thr_info *tip)
 		setlinebuf(tip->vfp);
 	}
 
-	if (pthread_create(&tip->sub_thread, NULL, replay_sub, tip)) {
-		fatal("pthread_create", ERR_SYSCALL, 
-			"thread create failed\n");
+	if (pthread_create(&tip->sub_thread, NULL, replay_sub, tip))
+	{
+		fatal("pthread_create", ERR_SYSCALL,
+			  "thread create failed\n");
 		/*NOTREACHED*/
 	}
 
-	if (pthread_create(&tip->rec_thread, NULL, replay_rec, tip)) {
-		fatal("pthread_create", ERR_SYSCALL, 
-			"thread create failed\n");
+	if (pthread_create(&tip->rec_thread, NULL, replay_rec, tip))
+	{
+		fatal("pthread_create", ERR_SYSCALL,
+			  "thread create failed\n");
 		/*NOTREACHED*/
 	}
 }
@@ -841,11 +944,13 @@ static void tip_release(struct thr_info *tip)
 	assert(list_len(&tip->used_iocbs) == 0);
 	assert(tip->naios_free == naios);
 
-	if (pthread_join(tip->sub_thread, NULL)) {
+	if (pthread_join(tip->sub_thread, NULL))
+	{
 		fatal("pthread_join", ERR_SYSCALL, "pthread sub join failed\n");
 		/*NOTREACHED*/
 	}
-	if (pthread_join(tip->rec_thread, NULL)) {
+	if (pthread_join(tip->rec_thread, NULL))
+	{
 		fatal("pthread_join", ERR_SYSCALL, "pthread rec join failed\n");
 		/*NOTREACHED*/
 	}
@@ -853,12 +958,14 @@ static void tip_release(struct thr_info *tip)
 	io_destroy(tip->ctx);
 
 	list_splice(&tip->used_iocbs, &tip->free_iocbs);
-	list_for_each_safe(p, q, &tip->free_iocbs) {
+	list_for_each_safe(p, q, &tip->free_iocbs)
+	{
 		struct iocb_pkt *iocbp = list_entry(p, struct iocb_pkt, head);
 
 		list_del(&iocbp->head);
-		if (iocbp->nbytes) 
-			free(iocbp->iocb.u.c.buf);
+		// if (iocbp->nbytes && iocbp->iocb.u.c.buf != g_dat_buf) {
+		// 	free(iocbp->iocb.u.c.buf);
+		// }
 		free(iocbp);
 	}
 
@@ -887,49 +994,55 @@ static void add_input_file(int cpu, char *devnm, char *file_name)
 	tip->iterations = def_iterations;
 
 	tip->ifd = open(file_name, O_RDONLY);
-	if (tip->ifd < 0) {
+	if (tip->ifd < 0)
+	{
 		fatal(file_name, ERR_ARGS, "Unable to open\n");
 		/*NOTREACHED*/
 	}
-	if (fstat(tip->ifd, &buf) < 0) {
+	if (fstat(tip->ifd, &buf) < 0)
+	{
 		fatal(file_name, ERR_SYSCALL, "fstat failed\n");
 		/*NOTREACHED*/
 	}
-	if (buf.st_size < (off_t)sizeof(hdr)) {
+	if (buf.st_size < (off_t)sizeof(hdr))
+	{
 		if (verbose)
 			fprintf(stderr, "\t%s empty\n", file_name);
 		goto empty_file;
 	}
 
-	if (read(tip->ifd, &hdr, sizeof(hdr)) != sizeof(hdr)) {
+	if (read(tip->ifd, &hdr, sizeof(hdr)) != sizeof(hdr))
+	{
 		fatal(file_name, ERR_ARGS, "Header read failed\n");
 		/*NOTREACHED*/
 	}
 
-	if (hdr.version != my_version) {
-		fprintf(stderr, "%llx %llx %llx %llx\n", 
-			(long long unsigned)hdr.version,
-			(long long unsigned)hdr.genesis,
-			(long long unsigned)hdr.nbunches,
-			(long long unsigned)hdr.total_pkts);
-		fatal(NULL, ERR_ARGS, 
-			"BT version mismatch: %lx versus my %lx\n",
-			(long)hdr.version, (long)my_version);
-			
+	if (hdr.version != my_version)
+	{
+		fprintf(stderr, "%llx %llx %llx %llx\n",
+				(long long unsigned)hdr.version,
+				(long long unsigned)hdr.genesis,
+				(long long unsigned)hdr.nbunches,
+				(long long unsigned)hdr.total_pkts);
+		fatal(NULL, ERR_ARGS,
+			  "BT version mismatch: %lx versus my %lx\n",
+			  (long)hdr.version, (long)my_version);
 	}
 
-	if (hdr.nbunches == 0) {
-empty_file:
+	if (hdr.nbunches == 0)
+	{
+	empty_file:
 		close(tip->ifd);
 		free(tip);
 		return;
 	}
 
-	if (hdr.genesis < genesis) {
+	if (hdr.genesis < genesis)
+	{
 		if (verbose > 1)
 			fprintf(stderr, "Setting genesis to %llu.%llu\n",
-				du64_to_sec(hdr.genesis),
-				du64_to_nsec(hdr.genesis));
+					du64_to_sec(hdr.genesis),
+					du64_to_nsec(hdr.genesis));
 		genesis = hdr.genesis;
 	}
 
@@ -939,8 +1052,8 @@ empty_file:
 	list_add_tail(&tip->head, &input_files);
 
 	if (verbose)
-		fprintf(stderr, "Added %s %llu\n", file_name, 
-			(long long)hdr.genesis);
+		fprintf(stderr, "Added %s %llu\n", file_name,
+				(long long)hdr.genesis);
 }
 
 /**
@@ -967,7 +1080,8 @@ static void rem_input_files(void)
 {
 	struct list_head *p, *q;
 
-	list_for_each_safe(p, q, &input_files) {
+	list_for_each_safe(p, q, &input_files)
+	{
 		rem_input_file(list_entry(p, struct thr_info, head));
 	}
 }
@@ -979,7 +1093,8 @@ static void __find_input_files(struct dev_info *dip)
 {
 	int cpu = 0;
 
-	for (;;) {
+	for (;;)
+	{
 		char full_name[MAXPATHLEN];
 
 		sprintf(full_name, "%s/%s.%s.%d", idir, dip->devnm, ibase, cpu);
@@ -990,14 +1105,14 @@ static void __find_input_files(struct dev_info *dip)
 		cpu++;
 	}
 
-	if (!cpu) {
+	if (!cpu)
+	{
 		fatal(NULL, ERR_ARGS, "No traces found for %s\n", dip->devnm);
 		/*NOTREACHED*/
 	}
 
 	rem_input_dev(dip);
 }
-
 
 /**
  * find_input_files - Find input files for all devices
@@ -1006,7 +1121,8 @@ static void find_input_files(void)
 {
 	struct list_head *p, *q;
 
-	list_for_each_safe(p, q, &input_devs) {
+	list_for_each_safe(p, q, &input_devs)
+	{
 		__find_input_files(list_entry(p, struct dev_info, head));
 	}
 }
@@ -1026,13 +1142,16 @@ static int reap_wait_aios(struct thr_info *tip)
 {
 	int naios = 0;
 
-	if (!is_reap_done(tip)) {
+	if (!is_reap_done(tip))
+	{
 		pthread_mutex_lock(&tip->mutex);
-		while (tip->naios_out == 0) {
+		while (tip->naios_out == 0)
+		{
 			tip->reap_wait = 1;
-			if (pthread_cond_wait(&tip->cond, &tip->mutex)) {
-				fatal("pthread_cond_wait", ERR_SYSCALL, 
-					"nfree_current cond wait failed\n");
+			if (pthread_cond_wait(&tip->cond, &tip->mutex))
+			{
+				fatal("pthread_cond_wait", ERR_SYSCALL,
+					  "nfree_current cond wait failed\n");
 				/*NOTREACHED*/
 			}
 		}
@@ -1056,31 +1175,35 @@ static void reclaim_ios(struct thr_info *tip, long naios_out)
 
 again:
 	assert(naios > 0);
-	for (;;) {
+	for (;;)
+	{
 		ndone = io_getevents(tip->ctx, 1, naios_out, events, NULL);
 		if (ndone > 0)
 			break;
 
-		if (errno && errno != EINTR) {
-			fatal("io_getevents", ERR_SYSCALL, 
-				"io_getevents failed\n");
+		if (errno && errno != EINTR)
+		{
+			fatal("io_getevents", ERR_SYSCALL,
+				  "io_getevents failed\n");
 			/*NOTREACHED*/
 		}
 	}
 	assert(0 < ndone && ndone <= naios_out);
 
 	pthread_mutex_lock(&tip->mutex);
-	for (i = 0, evp = events; i < ndone; i++, evp++) {
+	for (i = 0, evp = events; i < ndone; i++, evp++)
+	{
 		struct iocb_pkt *iocbp = evp->data;
 
-                if (evp->res != iocbp->iocb.u.c.nbytes) {
-                        fatal(NULL, ERR_SYSCALL,
-                              "Event failure %ld/%ld\t(%ld + %ld)\n",
-                              (long)evp->res, (long)evp->res2,
-                              (long)iocbp->iocb.u.c.offset / nb_sec, 
-			      (long)iocbp->iocb.u.c.nbytes / nb_sec);
-                        /*NOTREACHED*/
-                }
+		if (evp->res != iocbp->iocb.u.c.nbytes)
+		{
+			fatal(NULL, ERR_SYSCALL,
+				  "Event failure %ld/%ld\t(%ld + %ld)\n",
+				  (long)evp->res, (long)evp->res2,
+				  (long)iocbp->iocb.u.c.offset / nb_sec,
+				  (long)iocbp->iocb.u.c.nbytes / nb_sec);
+			/*NOTREACHED*/
+		}
 
 		list_move_tail(&iocbp->head, &tip->free_iocbs);
 	}
@@ -1089,7 +1212,8 @@ again:
 	tip->naios_out -= ndone;
 	naios_out = minl(naios_out, tip->naios_out);
 
-	if (tip->send_wait) {
+	if (tip->send_wait)
+	{
 		tip->send_wait = 0;
 		pthread_cond_signal(&tip->cond);
 	}
@@ -1111,7 +1235,7 @@ static void *replay_rec(void *arg)
 	long naios_out;
 	struct thr_info *tip = arg;
 
-	while ((naios_out = reap_wait_aios(tip)) > 0) 
+	while ((naios_out = reap_wait_aios(tip)) > 0)
 		reclaim_ios(tip, naios_out);
 
 	assert(tip->send_done);
@@ -1137,23 +1261,25 @@ static void *replay_rec(void *arg)
 static int next_bunch(struct thr_info *tip, struct io_bunch *bunch)
 {
 	size_t count, result;
-	
+
 	result = read(tip->ifd, &bunch->hdr, sizeof(bunch->hdr));
-	if (result != sizeof(bunch->hdr)) {
+	if (result != sizeof(bunch->hdr))
+	{
 		if (result == 0)
 			return 0;
 
-		fatal(tip->file_name, ERR_SYSCALL, "Short hdr(%ld)\n", 
-			(long)result);
+		fatal(tip->file_name, ERR_SYSCALL, "Short hdr(%ld)\n",
+			  (long)result);
 		/*NOTREACHED*/
 	}
 	assert(bunch->hdr.npkts <= BT_MAX_PKTS);
 
 	count = bunch->hdr.npkts * sizeof(struct io_pkt);
 	result = read(tip->ifd, &bunch->pkts, count);
-	if (result != count) {
-		fatal(tip->file_name, ERR_SYSCALL, "Short pkts(%ld/%ld)\n", 
-			(long)result, (long)count);
+	if (result != count)
+	{
+		fatal(tip->file_name, ERR_SYSCALL, "Short pkts(%ld/%ld)\n",
+			  (long)result, (long)count);
 		/*NOTREACHED*/
 	}
 
@@ -1172,11 +1298,13 @@ static int nfree_current(struct thr_info *tip)
 	int nfree = 0;
 
 	pthread_mutex_lock(&tip->mutex);
-	while (!is_send_done(tip) && ((nfree = tip->naios_free) == 0)) {
+	while (!is_send_done(tip) && ((nfree = tip->naios_free) == 0))
+	{
 		tip->send_wait = 1;
-		if (pthread_cond_wait(&tip->cond, &tip->mutex)) {
-			fatal("pthread_cond_wait", ERR_SYSCALL, 
-				"nfree_current cond wait failed\n");
+		if (pthread_cond_wait(&tip->cond, &tip->mutex))
+		{
+			fatal("pthread_cond_wait", ERR_SYSCALL,
+				  "nfree_current cond wait failed\n");
 			/*NOTREACHED*/
 		}
 	}
@@ -1196,21 +1324,23 @@ static void stall(struct thr_info *tip, long long oclock)
 	long long dreal, tclock = gettime() - rgenesis;
 
 	oclock /= acc_factor;
-	
+
 	if (verbose > 1)
 		fprintf(tip->vfp, "   stall(%lld.%09lld, %lld.%09lld)\n",
-			du64_to_sec(oclock), du64_to_nsec(oclock),
-			du64_to_sec(tclock), du64_to_nsec(tclock));
+				du64_to_sec(oclock), du64_to_nsec(oclock),
+				du64_to_sec(tclock), du64_to_nsec(tclock));
 
-	while (!is_send_done(tip) && tclock < oclock) {
+	while (!is_send_done(tip) && tclock < oclock)
+	{
 		dreal = oclock - tclock;
 		req.tv_sec = dreal / (1000 * 1000 * 1000);
 		req.tv_nsec = dreal % (1000 * 1000 * 1000);
 
-		if (verbose > 1) {
+		if (verbose > 1)
+		{
 			fprintf(tip->vfp, "++ stall(%lld.%09lld) ++\n",
-				(long long)req.tv_sec,
-				(long long)req.tv_nsec);
+					(long long)req.tv_sec,
+					(long long)req.tv_nsec);
 		}
 
 		if (nanosleep(&req, NULL) < 0 && signal_done)
@@ -1227,8 +1357,8 @@ static void stall(struct thr_info *tip, long long oclock)
  * @pkts: AIOs to map
  * @ntodo: Number of AIOs to map
  */
-static void iocbs_map(struct thr_info *tip, struct iocb **list, 
-					     struct io_pkt *pkts, int ntodo)
+static void iocbs_map(struct thr_info *tip, struct iocb **list,
+					  struct io_pkt *pkts, int ntodo)
 {
 	int i;
 	struct io_pkt *pkt;
@@ -1237,7 +1367,8 @@ static void iocbs_map(struct thr_info *tip, struct iocb **list,
 
 	pthread_mutex_lock(&tip->mutex);
 	assert(ntodo <= list_len(&tip->free_iocbs));
-	for (i = 0, pkt = pkts; i < ntodo; i++, pkt++) {
+	for (i = 0, pkt = pkts; i < ntodo; i++, pkt++)
+	{
 		__u32 rw = pkt->rw;
 		struct iocb_pkt *iocbp;
 
@@ -1246,11 +1377,11 @@ static void iocbs_map(struct thr_info *tip, struct iocb **list,
 
 		if (verbose > 1)
 			fprintf(tip->vfp, "\t%10llu + %10llu %c%c\n",
-				(unsigned long long)pkt->sector, 
-				(unsigned long long)pkt->nbytes / nb_sec,
-				rw ? 'R' : 'W', 
-				(rw == 1 && pkt->rw == 0) ? '!' : ' ');
-		
+					(unsigned long long)pkt->sector,
+					(unsigned long long)pkt->nbytes / nb_sec,
+					rw ? 'R' : 'W',
+					(rw == 1 && pkt->rw == 0) ? '!' : ' ');
+
 		iocbp = list_entry(tip->free_iocbs.next, struct iocb_pkt, head);
 		iocb_setup(iocbp, rw, pkt->nbytes, pkt->sector * nb_sec);
 
@@ -1274,7 +1405,8 @@ static void process_bunch(struct thr_info *tip, struct io_bunch *bunch)
 	struct iocb *list[bunch->hdr.npkts];
 
 	assert(0 < bunch->hdr.npkts && bunch->hdr.npkts <= BT_MAX_PKTS);
-	while (!is_send_done(tip) && (i < bunch->hdr.npkts)) {
+	while (!is_send_done(tip) && (i < bunch->hdr.npkts))
+	{
 		long ndone;
 		int ntodo = min(nfree_current(tip), bunch->hdr.npkts - i);
 
@@ -1283,22 +1415,25 @@ static void process_bunch(struct thr_info *tip, struct io_bunch *bunch)
 		if (!no_stalls)
 			stall(tip, bunch->hdr.time_stamp - genesis);
 
-		if (ntodo) {
+		if (ntodo)
+		{
 			if (verbose > 1)
 				fprintf(tip->vfp, "submit(%d)\n", ntodo);
 			ndone = io_submit(tip->ctx, ntodo, list);
-			if (ndone != (long)ntodo) {
+			if (ndone != (long)ntodo)
+			{
 				fatal("io_submit", ERR_SYSCALL,
-					"%d: io_submit(%d:%ld) failed (%s)\n", 
-					tip->cpu, ntodo, ndone, 
-					strerror(labs(ndone)));
+					  "%d: io_submit(%d:%ld) failed (%s)\n",
+					  tip->cpu, ntodo, ndone,
+					  strerror(labs(ndone)));
 				/*NOTREACHED*/
 			}
 
 			pthread_mutex_lock(&tip->mutex);
 			tip->naios_out += ndone;
 			assert(tip->naios_out <= naios);
-			if (tip->reap_wait) {
+			if (tip->reap_wait)
+			{
 				tip->reap_wait = 0;
 				pthread_cond_signal(&tip->cond);
 			}
@@ -1322,7 +1457,8 @@ static void reset_input_file(struct thr_info *tip)
 
 	lseek(tip->ifd, 0, 0);
 
-	if (read(tip->ifd, &hdr, sizeof(hdr)) != sizeof(hdr)) {
+	if (read(tip->ifd, &hdr, sizeof(hdr)) != sizeof(hdr))
+	{
 		fatal(tip->file_name, ERR_ARGS, "Header reread failed\n");
 		/*NOTREACHED*/
 	}
@@ -1333,7 +1469,7 @@ static void reset_input_file(struct thr_info *tip)
  */
 static void *replay_sub(void *arg)
 {
-        unsigned int i;
+	unsigned int i;
 	char *mdev;
 	char path[MAXPATHLEN];
 	struct io_bunch bunch;
@@ -1349,21 +1485,23 @@ static void *replay_sub(void *arg)
 	 * restore device names that have larger paths
 	 */
 	for (i = 0; i < strlen(mdev); i++)
-	        if (path[strlen("/dev/") + i] == '_')
-		        path[strlen("/dev/") + i] = '/';
+		if (path[strlen("/dev/") + i] == '_')
+			path[strlen("/dev/") + i] = '/';
 #ifdef O_NOATIME
 	oflags = O_NOATIME;
 #else
 	oflags = 0;
 #endif
 	tip->ofd = open(path, O_RDWR | O_DIRECT | oflags);
-	if (tip->ofd < 0) {
+	if (tip->ofd < 0)
+	{
 		fatal(path, ERR_SYSCALL, "Failed device open\n");
 		/*NOTREACHED*/
 	}
 
 	set_replay_ready();
-	while (!is_send_done(tip) && tip->iterations--) {
+	while (!is_send_done(tip) && tip->iterations--)
+	{
 		wait_iter_start();
 		if (verbose > 1)
 			fprintf(tip->vfp, "\n=== %d ===\n", tip->iterations);
@@ -1378,107 +1516,85 @@ static void *replay_sub(void *arg)
 	return NULL;
 }
 
-/* 
+/*
  * ========================================================================
  * ==== COMMAND LINE ARGUMENT HANDLING ====================================
  * ========================================================================
  */
 
-static char usage_str[] = 						\
-        "\n"								\
-        "\t[ -c <cpus> : --cpus=<cpus>           ] Default: 1\n"        \
-        "\t[ -d <dir>  : --input-directory=<dir> ] Default: .\n"        \
-	"\t[ -F        : --find-records          ] Default: Off\n"	\
-        "\t[ -h        : --help                  ] Default: Off\n"      \
-        "\t[ -i <base> : --input-base=<base>     ] Default: replay\n"   \
-        "\t[ -I <iters>: --iterations=<iters>    ] Default: 1\n"        \
-        "\t[ -M <file> : --map-devs=<file>       ] Default: None\n"     \
-        "\t[ -N        : --no-stalls             ] Default: Off\n"      \
-        "\t[ -x        : --acc-factor            ] Default: 1\n"	\
-        "\t[ -v        : --verbose               ] Default: Off\n"      \
-        "\t[ -V        : --version               ] Default: Off\n"      \
-        "\t[ -W        : --write-enable          ] Default: Off\n"      \
-        "\t<dev...>                                Default: None\n"     \
-        "\n";
+static char usage_str[] =
+	"\n"
+	"\t[ -c <cpus> : --cpus=<cpus>           ] Default: 1\n"
+	"\t[ -d <dir>  : --input-directory=<dir> ] Default: .\n"
+	"\t[ -F        : --find-records          ] Default: Off\n"
+	"\t[ -h        : --help                  ] Default: Off\n"
+	"\t[ -i <base> : --input-base=<base>     ] Default: replay\n"
+	"\t[ -I <iters>: --iterations=<iters>    ] Default: 1\n"
+	"\t[ -M <file> : --map-devs=<file>       ] Default: None\n"
+	"\t[ -N        : --no-stalls             ] Default: Off\n"
+	"\t[ -x        : --acc-factor            ] Default: 1\n"
+	"\t[ -v        : --verbose               ] Default: Off\n"
+	"\t[ -V        : --version               ] Default: Off\n"
+	"\t[ -W        : --write-enable          ] Default: Off\n"
+	"\t[ -r        : --compression-ratio     ] Default: None\n"
+	"\t<dev...>                                Default: None\n"
+	"\n";
 
-#define S_OPTS	"c:d:Fhi:I:M:Nx:t:vVW"
+#define S_OPTS "c:d:Fhi:I:M:Nx:t:vVWr:"
 static struct option l_opts[] = {
-	{
-		.name = "cpus",
-		.has_arg = required_argument,
-		.flag = NULL,
-		.val = 'c'
-	},
-	{
-		.name = "input-directory",
-		.has_arg = required_argument,
-		.flag = NULL,
-		.val = 'd'
-	},
-	{
-		.name = "find-records",
-		.has_arg = no_argument,
-		.flag = NULL,
-		.val = 'F'
-	},
-	{
-		.name = "help",
-		.has_arg = no_argument,
-		.flag = NULL,
-		.val = 'h'
-	},
-	{
-		.name = "input-base",
-		.has_arg = required_argument,
-		.flag = NULL,
-		.val = 'i'
-	},
-	{
-		.name = "iterations",
-		.has_arg = required_argument,
-		.flag = NULL,
-		.val = 'I'
-	},
-	{
-		.name = "map-devs",
-		.has_arg = required_argument,
-		.flag = NULL,
-		.val = 'M'
-	},
-	{
-		.name = "no-stalls",
-		.has_arg = no_argument,
-		.flag = NULL,
-		.val = 'N'
-	},
-	{
-		.name = "acc-factor",
-		.has_arg = required_argument,
-		.flag = NULL,
-		.val = 'x'
-	},
-	{
-		.name = "verbose",
-		.has_arg = no_argument,
-		.flag = NULL,
-		.val = 'v'
-	},
-	{
-		.name = "version",
-		.has_arg = no_argument,
-		.flag = NULL,
-		.val = 'V'
-	},
-	{
-		.name = "write-enable",
-		.has_arg = no_argument,
-		.flag = NULL,
-		.val = 'W'
-	},
-	{
-		.name = NULL
-	}
-};
+	{.name = "cpus",
+	 .has_arg = required_argument,
+	 .flag = NULL,
+	 .val = 'c'},
+	{.name = "input-directory",
+	 .has_arg = required_argument,
+	 .flag = NULL,
+	 .val = 'd'},
+	{.name = "find-records",
+	 .has_arg = no_argument,
+	 .flag = NULL,
+	 .val = 'F'},
+	{.name = "help",
+	 .has_arg = no_argument,
+	 .flag = NULL,
+	 .val = 'h'},
+	{.name = "input-base",
+	 .has_arg = required_argument,
+	 .flag = NULL,
+	 .val = 'i'},
+	{.name = "iterations",
+	 .has_arg = required_argument,
+	 .flag = NULL,
+	 .val = 'I'},
+	{.name = "map-devs",
+	 .has_arg = required_argument,
+	 .flag = NULL,
+	 .val = 'M'},
+	{.name = "no-stalls",
+	 .has_arg = no_argument,
+	 .flag = NULL,
+	 .val = 'N'},
+	{.name = "acc-factor",
+	 .has_arg = required_argument,
+	 .flag = NULL,
+	 .val = 'x'},
+	{.name = "verbose",
+	 .has_arg = no_argument,
+	 .flag = NULL,
+	 .val = 'v'},
+	{.name = "version",
+	 .has_arg = no_argument,
+	 .flag = NULL,
+	 .val = 'V'},
+	{.name = "write-enable",
+	 .has_arg = no_argument,
+	 .flag = NULL,
+	 .val = 'W'},
+	{.name = "compression-ratio",
+	 .has_arg = optional_argument,
+	 .flag = NULL,
+	 .val = 'r'},
+	{.name = NULL}};
 
 /**
  * handle_args: Parse passed in argument list
@@ -1492,46 +1608,51 @@ static void handle_args(int argc, char *argv[])
 	int c;
 	int r;
 
-	while ((c = getopt_long(argc, argv, S_OPTS, l_opts, NULL)) != -1) {
-		switch (c) {
-		case 'c': 
+	while ((c = getopt_long(argc, argv, S_OPTS, l_opts, NULL)) != -1)
+	{
+		switch (c)
+		{
+		case 'c':
 			cpus_to_use = atoi(optarg);
-			if (cpus_to_use <= 0 || cpus_to_use > ncpus) {
-				fatal(NULL, ERR_ARGS, 
-				      "Invalid number of cpus %d (0<x<%d)\n",
-				      cpus_to_use, ncpus);
+			if (cpus_to_use <= 0 || cpus_to_use > ncpus)
+			{
+				fatal(NULL, ERR_ARGS,
+					  "Invalid number of cpus %d (0<x<%d)\n",
+					  cpus_to_use, ncpus);
 				/*NOTREACHED*/
 			}
 			break;
 
 		case 'd':
 			idir = optarg;
-			if (access(idir, R_OK | X_OK) != 0) {
-				fatal(idir, ERR_ARGS, 
-				      "Invalid input directory specified\n");
+			if (access(idir, R_OK | X_OK) != 0)
+			{
+				fatal(idir, ERR_ARGS,
+					  "Invalid input directory specified\n");
 				/*NOTREACHED*/
 			}
 			break;
 
-		case 'F': 
+		case 'F':
 			find_records = 1;
 			break;
 
-		case 'h': 
-			usage(); 
+		case 'h':
+			usage();
 			exit(0);
 			/*NOTREACHED*/
 
-		case 'i': 
+		case 'i':
 			ibase = optarg;
 			break;
 
 		case 'I':
 			def_iterations = atoi(optarg);
-			if (def_iterations <= 0) {
-				fprintf(stderr, 
-					"Invalid number of iterations %d\n",
-					def_iterations);
+			if (def_iterations <= 0)
+			{
+				fprintf(stderr,
+						"Invalid number of iterations %d\n",
+						def_iterations);
 				exit(ERR_ARGS);
 				/*NOTREACHED*/
 			}
@@ -1546,20 +1667,21 @@ static void handle_args(int argc, char *argv[])
 			break;
 
 		case 'x':
-			r = sscanf(optarg,"%u",&acc_factor);
-			if (r!=1) {
+			r = sscanf(optarg, "%f", &acc_factor);
+			if (r != 1 || acc_factor <= 0.001)
+			{
 				fprintf(stderr,
-					"Invalid acceleration factor\n");
+						"Invalid acceleration factor\n");
 				exit(ERR_ARGS);
 				/*NOTREACHED*/
 			}
 			break;
 
 		case 'V':
-			fprintf(stderr, "btreplay -- version %s\n", 
-				my_btversion);
-			fprintf(stderr, "            Built on %s\n", 
-				build_date);
+			fprintf(stderr, "btreplay -- version %s\n",
+					my_btversion);
+			fprintf(stderr, "            Built on %s\n",
+					build_date);
 			exit(0);
 			/*NOTREACHED*/
 
@@ -1571,10 +1693,22 @@ static void handle_args(int argc, char *argv[])
 			write_enabled = 1;
 			break;
 
+		case 'r':
+			comp_ratio = atoi(optarg);
+			if (comp_ratio <= 0 || comp_ratio > 100)
+			{
+				fatal(NULL, ERR_ARGS,
+					  "Invalid compression ratio %d, must be in range (0, 100].\n",
+					  comp_ratio);
+				/*NOTREACHED*/
+			}
+			g_dat_buf = gen_rand_sec(g_sec_cnt, comp_ratio);
+			break;
+
 		default:
 			usage();
-			fatal(NULL, ERR_ARGS, 
-			      "Invalid command line argument %c\n", c);
+			fatal(NULL, ERR_ARGS,
+				  "Invalid command line argument %c\n", c);
 			/*NOTREACHED*/
 		}
 	}
@@ -1585,7 +1719,8 @@ static void handle_args(int argc, char *argv[])
 	if (find_records)
 		find_input_devs(idir);
 
-	if (list_len(&input_devs) == 0) {
+	if (list_len(&input_devs) == 0)
+	{
 		fatal(NULL, ERR_ARGS, "Missing required input dev name(s)\n");
 		/*NOTREACHED*/
 	}
@@ -1603,7 +1738,7 @@ static void handle_args(int argc, char *argv[])
 /**
  * set_signal_done - Signal handler, catches signals & sets signal_done
  */
-static void set_signal_done(__attribute__((__unused__))int signum)
+static void set_signal_done(__attribute__((__unused__)) int signum)
 {
 	signal_done = 1;
 }
@@ -1629,12 +1764,14 @@ int main(int argc, char *argv[])
 	find_input_files();
 
 	nfiles = list_len(&input_files);
-	__list_for_each(p, &input_files) {
+	__list_for_each(p, &input_files)
+	{
 		tip_init(list_entry(p, struct thr_info, head));
 	}
 
 	wait_replays_ready();
-	for (i = 0; i < def_iterations; i++) {
+	for (i = 0; i < def_iterations; i++)
+	{
 		rgenesis = gettime();
 		start_iter();
 		if (verbose)
