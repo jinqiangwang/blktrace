@@ -726,9 +726,18 @@ static char *map_dev(char *from_dev)
 	return from_dev;
 }
 
-static void *g_dat_buf = NULL;		  // data buf
-static int g_sec_cnt = 64 * 1024 * 2; // sector count
-static void *g_read_buf = NULL;
+#define	    g_sec_cnt      (256 << 1)		// sector count
+static void *g_write_buf = NULL;		 	// write data buf
+static void *g_read_buf  = NULL;			// read data buf
+static int  g_m_blocks[g_sec_cnt] = {0};
+static __thread void * thr_write_buf = NULL;
+static __thread void * thr_read_buf = NULL;
+
+struct my_thr_info {
+	struct thr_info *tip;
+	void			*thr_read_buf;
+	void			*thr_write_buf;
+};
 
 void *gen_rand_sec(int nosec, int ratio)
 {
@@ -797,13 +806,15 @@ static void iocb_init(struct thr_info *tip, struct iocb_pkt *iocbp)
  */
 static void iocb_setup(struct iocb_pkt *iocbp, int rw, int n, long long off)
 {
-	if (g_dat_buf == NULL) {
+	if (g_write_buf== NULL) {
 		char *buf;
 		struct iocb *iop = &iocbp->iocb;
 
 		assert(rw == 0 || rw == 1);
 		assert(0 < n && (n % nb_sec) == 0);
 		assert(0 <= off);
+
+		g_m_blocks[n >> 9]++;
 
 		if (iocbp->nbytes)
 		{
@@ -830,7 +841,7 @@ static void iocb_setup(struct iocb_pkt *iocbp, int rw, int n, long long off)
 			touch_memory(buf, n);
 		}
 
-		iop->data = iocbp;		
+		iop->data = iocbp;
 	}
 	else {
 		////////////////////////////////////////
@@ -841,17 +852,21 @@ static void iocb_setup(struct iocb_pkt *iocbp, int rw, int n, long long off)
 		assert(0 < n && (n % nb_sec) == 0);
 		assert(0 <= off);
 
+		if (n > (g_sec_cnt << 9)) {
+			fatal("iocb_setup", ERR_ARGS,
+			"block size is larger than pre-allocated bufer\n");
+		}
 		iocbp->nbytes = n;
 
 		if (rw)
 		{
-			buf = g_read_buf;
+			buf = thr_read_buf;
 			io_prep_pread(iop, iocbp->tip->ofd, buf, n, off);
 		}
 		else
 		{
 			assert(write_enabled);
-			buf = g_dat_buf;
+			buf = thr_write_buf;
 			io_prep_pwrite(iop, iocbp->tip->ofd, buf, n, off);
 		}
 
@@ -917,14 +932,18 @@ static void tip_init(struct thr_info *tip)
 		setlinebuf(tip->vfp);
 	}
 
-	if (pthread_create(&tip->sub_thread, NULL, replay_sub, tip))
+	struct my_thr_info * mytip = malloc(sizeof(struct  my_thr_info));
+	mytip->tip = tip;
+	mytip->thr_read_buf = NULL;
+	mytip->thr_write_buf = NULL;
+	if (pthread_create(&tip->sub_thread, NULL, replay_sub, mytip))
 	{
 		fatal("pthread_create", ERR_SYSCALL,
 			  "thread create failed\n");
 		/*NOTREACHED*/
 	}
 
-	if (pthread_create(&tip->rec_thread, NULL, replay_rec, tip))
+	if (pthread_create(&tip->rec_thread, NULL, replay_rec, mytip))
 	{
 		fatal("pthread_create", ERR_SYSCALL,
 			  "thread create failed\n");
@@ -963,10 +982,12 @@ static void tip_release(struct thr_info *tip)
 		struct iocb_pkt *iocbp = list_entry(p, struct iocb_pkt, head);
 
 		list_del(&iocbp->head);
-		// if (iocbp->nbytes && iocbp->iocb.u.c.buf != g_dat_buf) {
-		// 	free(iocbp->iocb.u.c.buf);
-		// }
-		free(iocbp);
+		if(NULL == g_write_buf) {
+			if (iocbp->nbytes) {
+				free(iocbp->iocb.u.c.buf);
+			}
+			free(iocbp);
+		}
 	}
 
 	pthread_cond_destroy(&tip->cond);
@@ -1233,7 +1254,8 @@ again:
 static void *replay_rec(void *arg)
 {
 	long naios_out;
-	struct thr_info *tip = arg;
+	struct my_thr_info *mytip = arg;
+	struct thr_info *tip = mytip->tip;
 
 	while ((naios_out = reap_wait_aios(tip)) > 0)
 		reclaim_ios(tip, naios_out);
@@ -1241,6 +1263,9 @@ static void *replay_rec(void *arg)
 	assert(tip->send_done);
 	tip->reap_done = 1;
 	set_reclaim_done();
+
+	free(mytip->thr_write_buf);
+	free(mytip->thr_read_buf);
 
 	return NULL;
 }
@@ -1473,8 +1498,17 @@ static void *replay_sub(void *arg)
 	char *mdev;
 	char path[MAXPATHLEN];
 	struct io_bunch bunch;
-	struct thr_info *tip = arg;
+	struct my_thr_info * mytip = arg;
+	struct thr_info *tip = mytip->tip;
 	int oflags;
+
+	if (g_write_buf !=NULL && g_read_buf != NULL) {
+		thr_write_buf = buf_alloc(g_sec_cnt << 9);
+		memcpy(thr_write_buf, g_write_buf, g_sec_cnt << 9);
+		mytip->thr_write_buf = thr_write_buf;
+		thr_read_buf = buf_alloc(g_sec_cnt << 9);
+		mytip->thr_read_buf = thr_read_buf;
+	}
 
 	pin_to_cpu(tip);
 
@@ -1702,7 +1736,7 @@ static void handle_args(int argc, char *argv[])
 					  comp_ratio);
 				/*NOTREACHED*/
 			}
-			g_dat_buf = gen_rand_sec(g_sec_cnt, comp_ratio);
+			g_write_buf= gen_rand_sec(g_sec_cnt, comp_ratio);
 			break;
 
 		default:
@@ -1782,11 +1816,22 @@ int main(int argc, char *argv[])
 	wait_replays_done();
 	wait_reclaims_done();
 
+	for (i = 0; i < g_sec_cnt; i++) {
+		if (g_m_blocks[i] > 0) {
+			fprintf(stderr, "block size: %d, cnt: %d\n", i, g_m_blocks[i]);
+		}
+
+	}
+
+
 	if (verbose)
 		fprintf(stderr, "\n");
 
 	rem_input_files();
 	release_map_devs();
+
+	free(g_write_buf);
+	free(g_read_buf);
 
 	return 0;
 }
